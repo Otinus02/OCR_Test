@@ -35,6 +35,6 @@ vllm serve zai-org/GLM-OCR \
     --host 0.0.0.0 \
     --max-model-len 8192 \
     --gpu-memory-utilization 0.9 \
-    --limit-mm-per-prompt image=1 \
+    --limit-mm-per-prompt '{"image": 1}' \
     --speculative-config.method mtp \
     --speculative-config.num_speculative_tokens 1
