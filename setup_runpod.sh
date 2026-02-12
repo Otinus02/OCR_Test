@@ -43,7 +43,7 @@ nohup vllm serve zai-org/GLM-OCR \
     --allowed-local-media-path / \
     --port 8080 \
     --host 0.0.0.0 \
-    --max-model-len 8192 \
+    --max-model-len 32768 \
     --gpu-memory-utilization 0.9 \
     --limit-mm-per-prompt '{"image": 1}' \
     --speculative-config.method mtp \
