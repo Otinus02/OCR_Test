@@ -157,7 +157,7 @@ def run_benchmark(
     methods: list,
     pages: list[int] | None,
     total_pages: int,
-    concurrency: int = 4,
+    concurrency: int = 0,
 ) -> dict:
     """Run all methods and return structured results."""
     if pages is None:
@@ -185,9 +185,11 @@ def run_benchmark(
         page_results = {}
 
         if method.supports_per_page():
-            use_parallel = concurrency > 1 and len(pages) > 1
+            # concurrency=0 means unlimited (submit all at once, let vLLM handle it)
+            workers = len(pages) if concurrency == 0 else concurrency
+            use_parallel = workers > 1 and len(pages) > 1
             if use_parallel:
-                print(f"  Parallel mode: {concurrency} concurrent requests")
+                print(f"  Parallel mode: {len(pages)} pages → {workers} workers")
             t_wall_start = time.perf_counter()
             total_time = 0.0
 
@@ -198,7 +200,7 @@ def run_benchmark(
                 return pg, text, elapsed
 
             if use_parallel:
-                with ThreadPoolExecutor(max_workers=concurrency) as pool:
+                with ThreadPoolExecutor(max_workers=workers) as pool:
                     futures = {pool.submit(_run_one, pg): pg for pg in pages}
                     for future in as_completed(futures):
                         pg = futures[future]
@@ -453,8 +455,8 @@ def main():
         help="Output directory (default: results/<timestamp>)",
     )
     parser.add_argument(
-        "--concurrency", type=int, default=4,
-        help="Max concurrent requests for GLM-OCR (default: 4)",
+        "--concurrency", type=int, default=0,
+        help="Max concurrent requests for GLM-OCR (default: 0 = unlimited, submit all at once)",
     )
 
     args = parser.parse_args()
