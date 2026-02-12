@@ -10,6 +10,7 @@ import argparse
 import json
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -156,6 +157,7 @@ def run_benchmark(
     methods: list,
     pages: list[int] | None,
     total_pages: int,
+    concurrency: int = 4,
 ) -> dict:
     """Run all methods and return structured results."""
     if pages is None:
@@ -183,37 +185,73 @@ def run_benchmark(
         page_results = {}
 
         if method.supports_per_page():
+            use_parallel = concurrency > 1 and len(pages) > 1
+            if use_parallel:
+                print(f"  Parallel mode: {concurrency} concurrent requests")
+            t_wall_start = time.perf_counter()
             total_time = 0.0
-            for pg in pages:
-                print(f"  Page {pg}...", end=" ", flush=True)
+
+            def _run_one(pg):
                 t0 = time.perf_counter()
-                try:
-                    text = method.run_page(pdf_path, pg)
-                except Exception as e:
-                    text = ""
-                    print(f"ERROR: {e}")
-                    page_results[pg] = {
-                        "text": "",
-                        "time": 0,
-                        "metrics": compute_metrics(""),
-                        "error": str(e),
-                    }
-                    continue
+                text = method.run_page(pdf_path, pg)
                 elapsed = time.perf_counter() - t0
-                total_time += elapsed
-                metrics = compute_metrics(text)
-                page_results[pg] = {
-                    "text": text,
-                    "time": elapsed,
-                    "metrics": metrics,
-                }
-                status = "EMPTY" if metrics["empty"] else f"{metrics['chars']} chars"
-                print(f"{elapsed:.2f}s  ({status})")
+                return pg, text, elapsed
+
+            if use_parallel:
+                with ThreadPoolExecutor(max_workers=concurrency) as pool:
+                    futures = {pool.submit(_run_one, pg): pg for pg in pages}
+                    for future in as_completed(futures):
+                        pg = futures[future]
+                        try:
+                            pg, text, elapsed = future.result()
+                            total_time += elapsed
+                            metrics = compute_metrics(text)
+                            page_results[pg] = {
+                                "text": text,
+                                "time": elapsed,
+                                "metrics": metrics,
+                            }
+                            status = "EMPTY" if metrics["empty"] else f"{metrics['chars']} chars"
+                            print(f"  Page {pg}... {elapsed:.2f}s  ({status})")
+                        except Exception as e:
+                            print(f"  Page {pg}... ERROR: {e}")
+                            page_results[pg] = {
+                                "text": "",
+                                "time": 0,
+                                "metrics": compute_metrics(""),
+                                "error": str(e),
+                            }
+            else:
+                for pg in pages:
+                    print(f"  Page {pg}...", end=" ", flush=True)
+                    try:
+                        pg, text, elapsed = _run_one(pg)
+                        total_time += elapsed
+                        metrics = compute_metrics(text)
+                        page_results[pg] = {
+                            "text": text,
+                            "time": elapsed,
+                            "metrics": metrics,
+                        }
+                        status = "EMPTY" if metrics["empty"] else f"{metrics['chars']} chars"
+                        print(f"{elapsed:.2f}s  ({status})")
+                    except Exception as e:
+                        print(f"ERROR: {e}")
+                        page_results[pg] = {
+                            "text": "",
+                            "time": 0,
+                            "metrics": compute_metrics(""),
+                            "error": str(e),
+                        }
+
+            t_wall_total = time.perf_counter() - t_wall_start
+            if use_parallel:
+                print(f"  Wall time: {t_wall_total:.2f}s (sum: {total_time:.2f}s)")
 
             results[method_name] = {
                 "status": "ok",
                 "pages": page_results,
-                "total_time": total_time,
+                "total_time": t_wall_total if use_parallel else total_time,
             }
         else:
             # Whole-document method (markitdown)
@@ -414,6 +452,10 @@ def main():
         "--output-dir", default=None,
         help="Output directory (default: results/<timestamp>)",
     )
+    parser.add_argument(
+        "--concurrency", type=int, default=4,
+        help="Max concurrent requests for GLM-OCR (default: 4)",
+    )
 
     args = parser.parse_args()
 
@@ -488,7 +530,7 @@ def main():
         print(f"Pages: {pages}")
 
         # Run benchmark
-        results = run_benchmark(pdf_str, methods, pages, total_pages)
+        results = run_benchmark(pdf_str, methods, pages, total_pages, concurrency=args.concurrency)
 
         # Save results
         if args.output_dir:
