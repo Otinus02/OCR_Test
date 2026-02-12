@@ -383,8 +383,12 @@ def main():
     parser = argparse.ArgumentParser(
         description="OCR Benchmark - GLM-OCR vs pymupdf4llm vs markitdown"
     )
-    parser.add_argument(
-        "--pdf", required=True, help="Input PDF file path"
+    pdf_group = parser.add_mutually_exclusive_group(required=True)
+    pdf_group.add_argument(
+        "--pdf", help="Input PDF file path"
+    )
+    pdf_group.add_argument(
+        "--pdf-dir", help="Directory containing PDF files (process all PDFs)"
     )
     parser.add_argument(
         "--server", default="http://localhost:8080",
@@ -413,26 +417,23 @@ def main():
 
     args = parser.parse_args()
 
-    # Validate PDF
-    pdf_path = args.pdf
-    if not Path(pdf_path).exists():
-        print(f"ERROR: PDF not found: {pdf_path}")
-        sys.exit(1)
-
-    total_pages = get_pdf_page_count(pdf_path)
-    print(f"PDF: {pdf_path} ({total_pages} pages)")
-
-    # Parse pages
-    pages = None
-    if args.pages:
-        pages = [int(p.strip()) for p in args.pages.split(",")]
-        for p in pages:
-            if p < 0 or p >= total_pages:
-                print(f"ERROR: Page {p} out of range (0-{total_pages - 1})")
-                sys.exit(1)
-
-    if pages is None:
-        pages = list(range(total_pages))
+    # Collect PDF files
+    if args.pdf_dir:
+        pdf_dir = Path(args.pdf_dir)
+        if not pdf_dir.is_dir():
+            print(f"ERROR: Directory not found: {args.pdf_dir}")
+            sys.exit(1)
+        pdf_files = sorted(pdf_dir.glob("*.pdf"))
+        if not pdf_files:
+            print(f"ERROR: No PDF files found in {args.pdf_dir}")
+            sys.exit(1)
+        print(f"Found {len(pdf_files)} PDF files in {args.pdf_dir}")
+    else:
+        pdf_path = Path(args.pdf)
+        if not pdf_path.exists():
+            print(f"ERROR: PDF not found: {args.pdf}")
+            sys.exit(1)
+        pdf_files = [pdf_path]
 
     # Build method list
     requested = [m.strip() for m in args.methods.split(",")]
@@ -441,31 +442,67 @@ def main():
         "pymupdf4llm": lambda: Pymupdf4llmMethod(),
         "markitdown": lambda: MarkitdownMethod(),
     }
-    methods = []
+    methods_names = []
     for name in requested:
         if name not in method_map:
             print(f"WARNING: Unknown method '{name}', skipping")
             continue
-        methods.append(method_map[name]())
+        methods_names.append(name)
 
-    if not methods:
+    if not methods_names:
         print("ERROR: No valid methods specified")
         sys.exit(1)
 
-    print(f"Methods: {', '.join(m.name for m in methods)}")
-    print(f"Pages: {pages}")
+    # Process each PDF
+    for idx, pdf_path in enumerate(pdf_files):
+        pdf_str = str(pdf_path)
 
-    # Run benchmark
-    results = run_benchmark(pdf_path, methods, pages, total_pages)
+        if len(pdf_files) > 1:
+            print(f"\n{'=' * 60}")
+            print(f"  [{idx + 1}/{len(pdf_files)}] {pdf_path.name}")
+            print(f"{'=' * 60}")
 
-    # Save results
-    if args.output_dir:
-        output_dir = Path(args.output_dir)
-    else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = Path("results") / timestamp
+        total_pages = get_pdf_page_count(pdf_str)
+        print(f"PDF: {pdf_str} ({total_pages} pages)")
 
-    save_results(results, pages, pdf_path, output_dir)
+        # Parse pages
+        pages = None
+        if args.pages:
+            pages = [int(p.strip()) for p in args.pages.split(",")]
+            for p in pages:
+                if p < 0 or p >= total_pages:
+                    print(f"WARNING: Page {p} out of range (0-{total_pages - 1}), skipping {pdf_path.name}")
+                    break
+            else:
+                pass  # all pages valid
+            if pages and any(p < 0 or p >= total_pages for p in pages):
+                continue
+
+        if pages is None:
+            pages = list(range(total_pages))
+
+        # Build fresh method instances for each PDF
+        methods = [method_map[name]() for name in methods_names]
+
+        print(f"Methods: {', '.join(m.name for m in methods)}")
+        print(f"Pages: {pages}")
+
+        # Run benchmark
+        results = run_benchmark(pdf_str, methods, pages, total_pages)
+
+        # Save results
+        if args.output_dir:
+            base_output = Path(args.output_dir)
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            base_output = Path("results") / timestamp
+
+        if len(pdf_files) > 1:
+            output_dir = base_output / pdf_path.stem
+        else:
+            output_dir = base_output
+
+        save_results(results, pages, pdf_str, output_dir)
 
 
 if __name__ == "__main__":
