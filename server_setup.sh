@@ -8,12 +8,18 @@ set -e
 
 echo "=== GLM-OCR vLLM Server Setup ==="
 
-# Install vLLM (nightly for GLM-OCR support)
+# NOTE: GLM-OCR requires transformers>=5.1.0, but vLLM pins transformers<5.
+# Workaround: install vLLM first (pulls transformers 4.x), then overwrite with v5.
+# pip doesn't re-check constraints of already-installed packages on sequential installs.
+# Runtime is compatible since vLLM 0.14.0+. (https://github.com/vllm-project/vllm/issues/30466)
+# This will be resolved once vLLM PR #30566 merges.
+
+# Step 1: Install vLLM nightly (brings transformers 4.x)
 echo "[1/3] Installing vLLM..."
 pip install -U vllm --pre --extra-index-url https://wheels.vllm.ai/nightly
 
-# Install transformers from source (required for GLM-OCR)
-echo "[2/3] Installing transformers (latest)..."
+# Step 2: Overwrite transformers to v5+ (GLM-OCR requirement)
+echo "[2/3] Installing transformers v5 (overriding vLLM pin)..."
 pip install git+https://github.com/huggingface/transformers.git
 
 # Start vLLM server

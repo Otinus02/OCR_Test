@@ -12,12 +12,18 @@ echo "=== OCR Benchmark - RunPod Setup ==="
 echo "[1/5] Installing benchmark dependencies..."
 pip install requests Pillow PyMuPDF pymupdf4llm markitdown
 
-# 2. Install vLLM (nightly for GLM-OCR support)
+# NOTE: GLM-OCR requires transformers>=5.1.0, but vLLM pins transformers<5.
+# Workaround: install vLLM first (pulls transformers 4.x), then overwrite with v5.
+# pip doesn't re-check constraints of already-installed packages on sequential installs.
+# Runtime is compatible since vLLM 0.14.0+. (https://github.com/vllm-project/vllm/issues/30466)
+# This will be resolved once vLLM PR #30566 merges.
+
+# 2. Install vLLM nightly (brings transformers 4.x)
 echo "[2/5] Installing vLLM (nightly)..."
 pip install -U vllm --pre --extra-index-url https://wheels.vllm.ai/nightly
 
-# 3. Install transformers from source (required for GLM-OCR)
-echo "[3/5] Installing transformers (from source)..."
+# 3. Overwrite transformers to v5+ (GLM-OCR requirement)
+echo "[3/5] Installing transformers v5 (overriding vLLM pin)..."
 pip install git+https://github.com/huggingface/transformers.git
 
 # 4. Clone repository
