@@ -6,7 +6,6 @@ Usage:
 """
 
 import argparse
-import base64
 import json
 import sys
 from pathlib import Path
@@ -14,34 +13,7 @@ from pathlib import Path
 import requests
 from PIL import Image
 
-# PDF -> 이미지 변환을 위해 PyMuPDF 사용
-import fitz  # PyMuPDF
-
-
-def pdf_to_images(pdf_path: str, dpi: int = 200) -> list[Image.Image]:
-    """PDF 파일을 페이지별 PIL Image 리스트로 변환"""
-    doc = fitz.open(pdf_path)
-    images = []
-    zoom = dpi / 72  # 72 is default PDF DPI
-    matrix = fitz.Matrix(zoom, zoom)
-
-    for page_num in range(len(doc)):
-        page = doc[page_num]
-        pix = page.get_pixmap(matrix=matrix)
-        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        images.append(img)
-        print(f"  페이지 {page_num + 1}/{len(doc)} 변환 완료 ({pix.width}x{pix.height})")
-
-    doc.close()
-    return images
-
-
-def image_to_base64(img: Image.Image) -> str:
-    """PIL Image를 base64 문자열로 변환"""
-    import io
-    buffer = io.BytesIO()
-    img.save(buffer, format="PNG")
-    return base64.b64encode(buffer.getvalue()).decode("utf-8")
+from ocr_utils import pdf_to_images, image_to_base64
 
 
 def ocr_request(server_url: str, image_b64: str, mode: str = "text",
@@ -80,8 +52,11 @@ def ocr_request(server_url: str, image_b64: str, mode: str = "text",
     resp = requests.post(api_url, json=payload, timeout=300)
     resp.raise_for_status()
 
-    result = resp.json()
-    return result["choices"][0]["message"]["content"]
+    data = resp.json()
+    choices = data.get("choices", [])
+    if not choices:
+        raise ValueError(f"서버 응답에 choices가 없습니다: {data}")
+    return choices[0]["message"]["content"]
 
 
 def process_file(server_url: str, input_path: str, mode: str,
@@ -123,6 +98,12 @@ def process_file(server_url: str, input_path: str, mode: str,
         except requests.exceptions.HTTPError as e:
             print(f"  서버 오류: {e}")
             print(f"  응답: {e.response.text[:500]}")
+            all_results.append(f"[ERROR] {e}")
+        except json.JSONDecodeError as e:
+            print(f"  JSON 파싱 오류: {e}")
+            all_results.append(f"[ERROR] JSON 파싱 실패: {e}")
+        except requests.exceptions.RequestException as e:
+            print(f"  요청 오류: {e}")
             all_results.append(f"[ERROR] {e}")
 
     # 결과 합치기

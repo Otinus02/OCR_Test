@@ -14,7 +14,7 @@ pip install requests Pillow PyMuPDF pymupdf4llm markitdown
 
 # 2. Install vLLM (nightly for GLM-OCR support)
 echo "[2/5] Installing vLLM (nightly)..."
-pip install -U vllm --extra-index-url https://wheels.vllm.ai/nightly
+pip install -U vllm --pre --extra-index-url https://wheels.vllm.ai/nightly
 
 # 3. Install transformers from source (required for GLM-OCR)
 echo "[3/5] Installing transformers (from source)..."
@@ -39,6 +39,9 @@ nohup vllm serve zai-org/GLM-OCR \
     --host 0.0.0.0 \
     --max-model-len 8192 \
     --gpu-memory-utilization 0.9 \
+    --limit-mm-per-prompt image=1 \
+    --speculative-config.method mtp \
+    --speculative-config.num_speculative_tokens 1 \
     > /workspace/vllm.log 2>&1 &
 
 echo ""

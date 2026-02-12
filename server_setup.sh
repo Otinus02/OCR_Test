@@ -10,7 +10,7 @@ echo "=== GLM-OCR vLLM Server Setup ==="
 
 # Install vLLM (nightly for GLM-OCR support)
 echo "[1/3] Installing vLLM..."
-pip install -U vllm --extra-index-url https://wheels.vllm.ai/nightly
+pip install -U vllm --pre --extra-index-url https://wheels.vllm.ai/nightly
 
 # Install transformers from source (required for GLM-OCR)
 echo "[2/3] Installing transformers (latest)..."
@@ -28,4 +28,7 @@ vllm serve zai-org/GLM-OCR \
     --port 8080 \
     --host 0.0.0.0 \
     --max-model-len 8192 \
-    --gpu-memory-utilization 0.9
+    --gpu-memory-utilization 0.9 \
+    --limit-mm-per-prompt image=1 \
+    --speculative-config.method mtp \
+    --speculative-config.num_speculative_tokens 1

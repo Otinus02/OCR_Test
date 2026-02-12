@@ -7,48 +7,17 @@ Usage:
 """
 
 import argparse
-import base64
-import io
 import json
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
-import fitz  # PyMuPDF
+import pymupdf
 import requests
 from PIL import Image
 
-
-# ── Helper functions (reused from main.py) ──────────────────────────────────
-
-def pdf_to_images(pdf_path: str, dpi: int = 200) -> list[Image.Image]:
-    """PDF 파일을 페이지별 PIL Image 리스트로 변환"""
-    doc = fitz.open(pdf_path)
-    images = []
-    zoom = dpi / 72
-    matrix = fitz.Matrix(zoom, zoom)
-    for page_num in range(len(doc)):
-        page = doc[page_num]
-        pix = page.get_pixmap(matrix=matrix)
-        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        images.append(img)
-    doc.close()
-    return images
-
-
-def image_to_base64(img: Image.Image) -> str:
-    """PIL Image를 base64 문자열로 변환"""
-    buffer = io.BytesIO()
-    img.save(buffer, format="PNG")
-    return base64.b64encode(buffer.getvalue()).decode("utf-8")
-
-
-def get_pdf_page_count(pdf_path: str) -> int:
-    doc = fitz.open(pdf_path)
-    count = len(doc)
-    doc.close()
-    return count
+from ocr_utils import image_to_base64, get_pdf_page_count
 
 
 # ── Method implementations ──────────────────────────────────────────────────
@@ -76,13 +45,13 @@ class GlmOcrMethod:
 
     def run_page(self, pdf_path: str, page_idx: int) -> str:
         """Run OCR on a single page"""
-        doc = fitz.open(pdf_path)
         zoom = self.dpi / 72
-        matrix = fitz.Matrix(zoom, zoom)
-        page = doc[page_idx]
-        pix = page.get_pixmap(matrix=matrix)
-        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        doc.close()
+        matrix = pymupdf.Matrix(zoom, zoom)
+
+        with pymupdf.open(pdf_path) as doc:
+            page = doc[page_idx]
+            pix = page.get_pixmap(matrix=matrix)
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
         b64 = image_to_base64(img)
         prompt_text = self.prompts.get(self.mode, self.mode)
@@ -112,7 +81,12 @@ class GlmOcrMethod:
             timeout=300,
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+
+        data = resp.json()
+        choices = data.get("choices", [])
+        if not choices:
+            raise ValueError(f"서버 응답에 choices가 없습니다: {data}")
+        return choices[0]["message"]["content"]
 
     def supports_per_page(self) -> bool:
         return True
